@@ -8,12 +8,12 @@
   <canvas id="webgpu-canvas" width="640" height="480"></canvas>
   <div>
     <label for="focalDist">focal plane (between 1 and 80):</label>
-    <input type="range" id="focalDist" name="focalDist" min="1" max="80" value="20" step="0.2">
+    <input type="range" id="focalDist" name="focalDist" min="1" max="80" step="0.2" value="20">
     <span id="focalDistValue"></span>
   </div>
   <div>
-    <label for="aperture">aperture (between .01 and 1):</label>
-    <input type="range" id="aperture" name="aperture" min=".1" max="1" step=".1" value=".5">
+    <label for="aperture">aperture (between .01 and 2):</label>
+    <input type="range" id="aperture" name="aperture" min=".1" max="2" step=".1" value=".5">
     <span id="apertureValue"></span>
   </div>
   <script type="module" src="./main.mjs"></script>

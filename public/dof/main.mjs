@@ -10,6 +10,7 @@ import { mat4, vec3 } from '../lib/gl-matrix.mjs';
 //  - [ ] foc dist & fake aperture --> real focal length (mm) and aperture (f stop)
 //  - [ ] can get rid of blit pass?
 //  - [ ] compress bunny
+//  - [ ]
 
 // Helpers
 
