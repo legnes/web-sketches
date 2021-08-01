@@ -1,0 +1,73 @@
+#version 450
+
+// TODO: play with local sizes
+layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+
+#define NUM_AGENTS 2048
+#define TWO_PI 6.28318530718
+
+struct Agent {
+  vec3 position;
+  float rotation;
+};
+
+layout(std140, set = 0, binding = 0) uniform PpsParams {
+  float speed;
+  float neighborhoodRadius;
+  float globalRotation;
+  float localRotation;
+};
+
+layout(std140, set = 0, binding = 1) buffer ReadAgents {
+  Agent readAgents[NUM_AGENTS];
+};
+
+layout(std140, set = 0, binding = 2) buffer WriteAgents {
+  // NOTE: Something weird goes on if you write to a structured buffer.
+  //       Seems like it gets compiled as a uniform rather than a rw buffer?
+  vec4 writeAgents[NUM_AGENTS];
+};
+
+vec4 packAgent(Agent agent) {
+  return vec4(agent.position, agent.rotation);
+}
+
+vec3 wrapPosition(vec3 position) {
+  vec3 dims = vec3(2, 2, 0);
+  vec3 halfDims = dims * 0.5;
+
+  return mod(position + halfDims, dims) - halfDims;
+}
+
+vec3 wrappedVector(vec3 positionA, vec3 positionB) {
+  vec3 dims = vec3(2, 2, 0);
+  vec3 halfDims = dims * 0.5;
+
+  vec3 vector = positionB - positionA;
+  vec3 shouldWrap = step(halfDims, abs(vector));
+  return (1 - shouldWrap) * vector + shouldWrap * (vector - sign(vector) * dims);
+}
+
+void main() {
+  uint index = gl_GlobalInvocationID.x;
+  Agent self = readAgents[index];
+  vec3 selfHeading = vec3(cos(self.rotation), sin(self.rotation), 0);
+
+  float neighborsAccumulator = 0;
+  float directionAccumulator = 0;
+  for (int i = 0; i < NUM_AGENTS; i++) {
+    Agent other = readAgents[i];
+    vec3 vectorToOther = wrappedVector(self.position, other.position);
+    float isNotSelf = clamp(max(i - index, index - i), 0, 1);
+
+    float distanceToOther = length(vectorToOther);
+    float isNeighbor = 1 - step(neighborhoodRadius, distanceToOther);
+
+    neighborsAccumulator += isNotSelf * isNeighbor;
+    directionAccumulator += isNotSelf * isNeighbor * sign(cross(selfHeading, vectorToOther).z);
+  }
+
+  self.position = wrapPosition(self.position + speed * selfHeading);
+  self.rotation = mod(self.rotation + globalRotation + localRotation * neighborsAccumulator * sign(directionAccumulator), TWO_PI);
+  writeAgents[index] = packAgent(self);
+}

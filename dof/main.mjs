@@ -2,9 +2,10 @@ import bunny from '../meshes/bunny.mjs';
 import { mat4, vec3 } from '../lib/gl-matrix.mjs';
 
 // TODO:
-//  - [ ] accum in float format and divide properly once on output
+//  - [ ] fix color quantizing (accum in float and do final blit)
 //  - [ ] aperture shapes
 //  - [ ] blue noise/fake noise
+//  - [ ] make sure early z/depth/frag test is running (explicit flag? no alpha channel?)
 //  - [ ] refactor everything
 //  - [ ] accum temporally (w no rotation)????
 //  - [ ] foc dist & fake aperture --> real focal length (mm) and aperture (f stop)
@@ -76,6 +77,7 @@ const NUM_INSTANCES_Z = 8;
 const INSTANCE_SPACING_X = 10;
 const INSTANCE_SPACING_Z = 10;
 const NUM_INSTANCES = NUM_INSTANCES_X * NUM_INSTANCES_Z;
+const SPIN_SPEED = Math.PI / 4 / 1000;
 
 // DOF constants
 const jitter = vec3.create();
@@ -138,7 +140,7 @@ const instancesBuffer = device.createBuffer({
 device.queue.writeBuffer(instancesBuffer, 0, instancesData);
 
 // Uniform data & buffers
-const cameraPosition = [0, 16, 44];
+const cameraPosition = [0, 16, NUM_INSTANCES_Z * INSTANCE_SPACING_Z / 2 + 4];
 const cameraTarget = [0, 0, 0];
 const upVector = [0, 1, 0];
 const cameraForward = vec3.subtract([], cameraTarget, cameraPosition);
@@ -210,7 +212,7 @@ const scenePipeline = device.createRenderPipeline({
     module: device.createShaderModule({ code: await loadShader('half-lambert.frag') }),
     entryPoint: 'main',
     targets: [{
-      format: presentationFormat,
+      format: presentationFormat
     }]
   },
   primitive: {
@@ -313,7 +315,13 @@ const clearPassDescriptor = {
 };
 
 // Render
+let previousFrameTime = Date.now();
 function frame() {
+  // Update time
+  const currentFrameTime = Date.now();
+  const dt = currentFrameTime - previousFrameTime;
+  previousFrameTime = currentFrameTime;
+
   // Update rotation
   for (let i = 0; i < NUM_INSTANCES_Z; i++) {
     const z = ((1 - NUM_INSTANCES_Z) / 2 + i) * INSTANCE_SPACING_Z;
@@ -321,7 +329,7 @@ function frame() {
       const x = ((1 - NUM_INSTANCES_X) / 2 + j) * INSTANCE_SPACING_X;
       const instanceOffset = (i * NUM_INSTANCES_X + j) * 16;
       const modelMatrix = instancesData.subarray(instanceOffset, instanceOffset + 16);
-      mat4.rotateY(modelMatrix, modelMatrix, Math.PI * 0.001);
+      mat4.rotateY(modelMatrix, modelMatrix, SPIN_SPEED * dt);
     }
   }
   device.queue.writeBuffer(instancesBuffer, 0, instancesData);
