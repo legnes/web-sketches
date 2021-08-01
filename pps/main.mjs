@@ -51,7 +51,8 @@ context.configure({
 //  5. Xfer --> 3d?
 
 // Constants
-const NUM_AGENTS = 2048;
+const NUM_AGENTS = 8192;
+const WORGROUP_SIZE = 32;
 
 // Define simulation data
 const agentData = new Float32Array(NUM_AGENTS * 4);
@@ -63,6 +64,7 @@ const ppsParams =
 // {speed: 0.012, neighborhoodRadius: 0.14, globalRotation: 0.034, localRotation: 0.057};
 // {speed: 0.044, neighborhoodRadius: 0.421, globalRotation: 0.340, localRotation: 0.043};
 // {speed: 0.019, neighborhoodRadius: 0.087, globalRotation: 0.220, localRotation: 0.210};
+// {speed: 0.01882759460617689, neighborhoodRadius: 0.47027292874906756, globalRotation: 0.48691403223956514, localRotation: 0.006270600991004448}
 {speed: 0.016, neighborhoodRadius: 0.090, globalRotation: 0.395, localRotation: 0.157}
 const ppsParamsSize = Object.keys(ppsParams).length * Float32Array.BYTES_PER_ELEMENT;
 
@@ -218,7 +220,7 @@ function frame() {
   const computePass = commandEncoder.beginComputePass();
   computePass.setPipeline(computePipeline);
   computePass.setBindGroup(0, computeBindGroups[frameParity]);
-  computePass.dispatch(NUM_AGENTS);
+  computePass.dispatch(NUM_AGENTS / WORGROUP_SIZE);
   computePass.endPass();
 
   device.queue.submit([ commandEncoder.finish() ]);
