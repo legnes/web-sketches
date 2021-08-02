@@ -1,0 +1,76 @@
+#version 450
+
+#define NUM_AGENTS 8192
+#define WORKGROUP_SIZE 64
+#define NUM_TILES NUM_AGENTS / WORKGROUP_SIZE
+#define TWO_PI 6.28318530718
+
+layout(local_size_x = WORKGROUP_SIZE, local_size_y = 1, local_size_z = 1) in;
+
+struct Agent {
+  vec3 position;
+  float rotation;
+};
+
+struct ForceAccumulator {
+  float neighbors;
+  float direction;
+};
+
+layout(std140, set = 0, binding = 0) uniform PpsParams {
+  float speed;
+  float neighborhoodRadius;
+  float globalRotation;
+  float localRotation;
+};
+
+layout(std140, set = 0, binding = 1) buffer InAgents {
+  Agent agents[NUM_AGENTS];
+};
+
+layout(std140, set = 0, binding = 2) buffer OutForces {
+  vec4 forces[NUM_AGENTS];
+};
+
+shared Agent workgroupAgents[WORKGROUP_SIZE];
+
+vec4 packForces(ForceAccumulator forceAccum) {
+  return vec4(forceAccum.neighbors, forceAccum.direction, 0, 0);
+}
+
+vec3 wrappedVector(vec3 positionA, vec3 positionB) {
+  vec3 dims = vec3(2, 2, 0);
+  vec3 halfDims = dims * 0.5;
+
+  vec3 vector = positionB - positionA;
+  vec3 shouldWrap = step(halfDims, abs(vector));
+  return (1 - shouldWrap) * vector + shouldWrap * (vector - sign(vector) * dims);
+}
+
+void main() {
+  uint selfIndex = gl_GlobalInvocationID.x;
+  Agent self = agents[selfIndex];
+  vec3 selfHeading = vec3(cos(self.rotation), sin(self.rotation), 0);
+
+  ForceAccumulator forceAccum = ForceAccumulator(0, 0);
+  for (uint i = 0; i < NUM_TILES; i++) {
+    uint otherIndex = i * WORKGROUP_SIZE + gl_LocalInvocationID.x;
+    workgroupAgents[gl_LocalInvocationID.x] = agents[otherIndex];
+    barrier();
+    for (uint j = 0; j < WORKGROUP_SIZE; j++) {
+      otherIndex = i * WORKGROUP_SIZE + j;
+      float isNotSelf = clamp(max(otherIndex - selfIndex, selfIndex - otherIndex), 0, 1);
+
+      Agent other = workgroupAgents[j];
+      vec3 vectorToOther = wrappedVector(self.position, other.position);
+      float distanceToOther = length(vectorToOther);
+      float isNeighbor = 1 - step(neighborhoodRadius, distanceToOther);
+
+      forceAccum.neighbors += isNotSelf * isNeighbor;
+      forceAccum.direction += isNotSelf * isNeighbor * sign(cross(selfHeading, vectorToOther).z);
+    }
+    barrier();
+  }
+
+  forces[selfIndex] = packForces(forceAccum);
+}

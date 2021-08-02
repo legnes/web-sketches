@@ -7,7 +7,30 @@
 <body>
   <canvas id="webgpu-canvas" width="512" height="512"></canvas>
   <div>
-    <button id="randomizeParamsInput">randomize prams</button>
+    <label for="speed">speed:</label>
+    <input type="range" id="speedInput" name="speed" min="0" max="0.025" step="0.001">
+    <span id="speedValue"></span>
+  </div>
+  <div>
+    <label for="neighborhoodRadius">neighborhood radius:</label>
+    <input type="range" id="neighborhoodRadiusInput" name="neighborhoodRadius" min="0" max="0.5" step="0.001">
+    <span id="neighborhoodRadiusValue"></span>
+  </div>
+  <div>
+    <label for="globalRotation">global rotation:</label>
+    <input type="range" id="globalRotationInput" name="globalRotation" min="-.314" max=".314" step="0.001">
+    <span id="globalRotationValue"></span>
+  </div>
+  <div>
+    <label for="localRotation">local rotation:</label>
+    <input type="range" id="localRotationInput" name="localRotation" min="0" max=".314" step="0.001">
+    <span id="localRotationValue"></span>
+  </div>
+  <div>
+    <button id="resetSimInput">reset sim</button>
+  </div>
+  <div>
+    <button id="randomizeParamsInput">randomize and reset</button>
   </div>
   <script type="module" src="./main.mjs"></script>
 </body>

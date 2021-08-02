@@ -26,68 +26,54 @@ context.configure({
   format: presentationFormat
 });
 
-// N^2 computations options
-//  1. N threads, each doing N computations
-//  2. N threads, accumulate N agents to environment using interlocked add, then update from environment
-//  3. P < N threads, subsets of N2 calculation space using shared mem
-//      - For each invocation (N / Q times)
-//        - For each work group (N / P work groups, thread size P):
-//          - For each thread P:
-//          [compute shader begins here]
-//            - Load curr data p
-//            - For each tile in Q (where Q is a multiple of P):
-//              - load one body description q
-//              - MEM LOCK/BARRIER
-//              - for 1-p, accum force on curr by all qs
-//            - Write to output buf at position p
-//
-// Plan: start with N2, then make smarter? Could also start with method 3, but should run some mem tests
-
-// Plan:
-//  1. Set up initial data (float4: position f2 and rotation f1 and empty f1)
-//  2. Draw particles from data
-//  3. Compute O(N) shader update particles
-//  4. Improve compute shader
-//  5. Xfer --> 3d?
-
 // Constants
+// TODO: I think size bottleneck is with accumulation calculation
+// The accumulation memory access pattern runs faster than naive loop
+// but things are still pretty slow because the calculations are slow
 const NUM_AGENTS = 8192;
-const WORGROUP_SIZE = 32;
+const ACCUMULATE_FORCES_WORGROUP_SIZE = 64;
+const UPDATE_AGENTS_WORGROUP_SIZE = 32;
 
 // Define simulation data
 const agentData = new Float32Array(NUM_AGENTS * 4);
+const forcesSize = NUM_AGENTS * 4 * 4;
 
 const ppsParams =
 // {speed: 0, neighborhoodRadius: 0, globalRotation: 0, localRotation: 0};
-// {speed: 0.02, neighborhoodRadius: 0.2, globalRotation: -0.1, localRotation: 0.05};
-// {speed: 0.018, neighborhoodRadius: 0.5, globalRotation: -0.01, localRotation: 0.15};
-// {speed: 0.012, neighborhoodRadius: 0.14, globalRotation: 0.034, localRotation: 0.057};
-// {speed: 0.044, neighborhoodRadius: 0.421, globalRotation: 0.340, localRotation: 0.043};
-// {speed: 0.019, neighborhoodRadius: 0.087, globalRotation: 0.220, localRotation: 0.210};
-// {speed: 0.01882759460617689, neighborhoodRadius: 0.47027292874906756, globalRotation: 0.48691403223956514, localRotation: 0.006270600991004448}
-{speed: 0.016, neighborhoodRadius: 0.090, globalRotation: 0.395, localRotation: 0.157}
-const ppsParamsSize = Object.keys(ppsParams).length * Float32Array.BYTES_PER_ELEMENT;
+// {speed: 0.02, neighborhoodRadius: 0.09, globalRotation: 0.40, localRotation: 0.16}
+// {speed: 0.006, neighborhoodRadius: 0.09, globalRotation: -0.1, localRotation: 0.12}
+{speed: 0.004, neighborhoodRadius: 0.261, globalRotation: 0.009, localRotation: 0.005}
+const paramsData = new Float32Array(Object.keys(ppsParams).length);
 
-// Set up compute pipeline
-const computePipeline = device.createComputePipeline({
+// Set up compute pipelines
+const accumulateForcesPipeline = device.createComputePipeline({
   compute: {
-    module: device.createShaderModule({ code: await loadShader('pps.comp') }),
+    module: device.createShaderModule({ code: await loadShader('ppsAccumulateForces.comp') }),
+    entryPoint: 'main',
+  },
+});
+
+const updateAgentsPipeline = device.createComputePipeline({
+  compute: {
+    module: device.createShaderModule({ code: await loadShader('ppsUpdateAgents.comp') }),
     entryPoint: 'main',
   },
 });
 
 // Set up compute buffers
-const agentBuffers = [];
-for (let i = 0; i < 2; i++) {
-  agentBuffers.push(device.createBuffer({
-    size: agentData.byteLength,
-    usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.VERTEX | GPUBufferUsage.STORAGE,
-  }));
-}
+const forcesBuffer = device.createBuffer({
+  size: forcesSize,
+  usage: GPUBufferUsage.STORAGE,
+});
 
-const ppsParamsBuffer = device.createBuffer({
-  size: ppsParamsSize,
-  usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+const agentsBuffer = device.createBuffer({
+  size: agentData.byteLength,
+  usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.VERTEX | GPUBufferUsage.STORAGE,
+});
+
+const paramsBuffer = device.createBuffer({
+  size: paramsData.byteLength,
+  usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.UNIFORM,
 });
 
 // Pass buffers and uniforms
@@ -99,67 +85,52 @@ function resetPositions() {
     agentData[baseIndex + 2] = 1;
     agentData[baseIndex + 3] = Math.random() * 2 * Math.PI;
   }
-  device.queue.writeBuffer(agentBuffers[0], 0, agentData);
-  device.queue.writeBuffer(agentBuffers[1], 0, agentData);
+  device.queue.writeBuffer(agentsBuffer, 0, agentData);
 }
 resetPositions();
 
 function updatePpsParams() {
-  device.queue.writeBuffer(
-    ppsParamsBuffer,
-    0,
-    new Float32Array([
-      ppsParams.speed,
-      ppsParams.neighborhoodRadius,
-      ppsParams.globalRotation,
-      ppsParams.localRotation
-    ])
-  );
+  paramsData[0] = ppsParams.speed;
+  paramsData[1] = ppsParams.neighborhoodRadius;
+  paramsData[2] = ppsParams.globalRotation;
+  paramsData[3] = ppsParams.localRotation;
+  device.queue.writeBuffer(paramsBuffer, 0, paramsData);
 }
 updatePpsParams();
 
-function resetAndRandomizePpsParams() {
-  resetPositions();
-  ppsParams.speed = Math.random() * 0.05;
-  ppsParams.neighborhoodRadius = Math.random() * .5;
-  ppsParams.globalRotation = (Math.random() * 2 - 1) * Math.PI * 0.2;
-  ppsParams.localRotation = Math.random() * Math.PI * 0.2;
-  console.log(ppsParams);
-  updatePpsParams();
-}
-
-document.getElementById('randomizeParamsInput').addEventListener('click', resetAndRandomizePpsParams);
-
-
 // Bind compute buffers
-const computeBindGroups = [];
-for (let i = 0; i < 2; i++) {
-  computeBindGroups.push(device.createBindGroup({
-    layout: computePipeline.getBindGroupLayout(0),
-    entries: [{
-      binding: 0,
-      resource: {
-        buffer: ppsParamsBuffer,
-        offset: 0,
-        size: ppsParamsSize
-      }
-    },{
-      binding: 1,
-      resource: {
-        buffer: agentBuffers[i],
-        offset: 0,
-        size: agentData.byteLength,
-      }
-    }, {
-      binding: 2,
-      resource: {
-        buffer: agentBuffers[(i + 1) % 2],
-        offset: 0,
-        size: agentData.byteLength,
-      }
-    }]
-  }));
-}
+const computeBindGroupEntries = [{
+  binding: 0,
+  resource: {
+    buffer: paramsBuffer,
+    offset: 0,
+    size: paramsData.byteLength
+  }
+},{
+  binding: 1,
+  resource: {
+    buffer: agentsBuffer,
+    offset: 0,
+    size: agentData.byteLength,
+  }
+}, {
+  binding: 2,
+  resource: {
+    buffer: forcesBuffer,
+    offset: 0,
+    size: forcesSize,
+  }
+}]
+
+const accumulateForcesBindGroup = device.createBindGroup({
+  layout: accumulateForcesPipeline.getBindGroupLayout(0),
+  entries: computeBindGroupEntries
+});
+
+const updateAgentsBindGroup = device.createBindGroup({
+  layout: updateAgentsPipeline.getBindGroupLayout(0),
+  entries: computeBindGroupEntries
+});
 
 // Set up render pipeline
 const renderPipeline = device.createRenderPipeline({
@@ -199,11 +170,43 @@ const renderPassDescriptor = {
   }]
 };
 
+// Handle interaction
+function randomRange(min, max) {
+  return +(min + (max - min) * Math.random()).toFixed(3);
+}
+
+function resetAndRandomizePpsParams() {
+  resetPositions();
+  ppsParams.speed = randomRange(0, 0.01);
+  ppsParams.neighborhoodRadius = randomRange(0, 0.5);
+  ppsParams.globalRotation = randomRange(-Math.PI * 0.1, Math.PI * 0.1);
+  ppsParams.localRotation = randomRange(0, Math.PI * 0.1);
+  console.log(ppsParams);
+  updatePpsParams();
+  updatePpsParamsDisplay();
+}
+
+function updatePpsParamsDisplay() {
+  for (const key in ppsParams) {
+    document.getElementById(`${key}Value`).textContent = ppsParams[key];
+    document.getElementById(`${key}Input`).value = ppsParams[key];
+  }
+}
+updatePpsParamsDisplay();
+
+document.getElementById('resetSimInput').addEventListener('click', resetPositions);
+document.getElementById('randomizeParamsInput').addEventListener('click', resetAndRandomizePpsParams);
+for (const key in ppsParams) {
+  document.getElementById(`${key}Input`).addEventListener('input', (evt) => {
+    ppsParams[key] = +evt.target.value;
+    updatePpsParams();
+    updatePpsParamsDisplay();
+  });
+}
+
 // Render
-let frameNumber = -1;
 function frame() {
   // Handle all swapping
-  const frameParity = ++frameNumber % 2;
   renderPassDescriptor.colorAttachments[0].view = context.getCurrentTexture().createView();
 
   // Run frame
@@ -212,16 +215,22 @@ function frame() {
   // First draw previous calculations (or initial conditions)
   const renderPass = commandEncoder.beginRenderPass(renderPassDescriptor);
   renderPass.setPipeline(renderPipeline);
-  renderPass.setVertexBuffer(0, agentBuffers[frameParity]);
+  renderPass.setVertexBuffer(0, agentsBuffer);
   renderPass.draw(3, NUM_AGENTS, 0, 0, 0);
   renderPass.endPass();
 
   // Then compute next draw
-  const computePass = commandEncoder.beginComputePass();
-  computePass.setPipeline(computePipeline);
-  computePass.setBindGroup(0, computeBindGroups[frameParity]);
-  computePass.dispatch(NUM_AGENTS / WORGROUP_SIZE);
-  computePass.endPass();
+  const accumulateForcesPass = commandEncoder.beginComputePass();
+  accumulateForcesPass.setPipeline(accumulateForcesPipeline);
+  accumulateForcesPass.setBindGroup(0, accumulateForcesBindGroup);
+  accumulateForcesPass.dispatch(NUM_AGENTS / ACCUMULATE_FORCES_WORGROUP_SIZE);
+  accumulateForcesPass.endPass();
+
+  const updateAgentsPass = commandEncoder.beginComputePass();
+  updateAgentsPass.setPipeline(updateAgentsPipeline);
+  updateAgentsPass.setBindGroup(0, updateAgentsBindGroup);
+  updateAgentsPass.dispatch(NUM_AGENTS / UPDATE_AGENTS_WORGROUP_SIZE);
+  updateAgentsPass.endPass();
 
   device.queue.submit([ commandEncoder.finish() ]);
 
