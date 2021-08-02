@@ -40,9 +40,9 @@ const forcesSize = NUM_AGENTS * 4 * 4;
 
 const ppsParams =
 // {speed: 0, neighborhoodRadius: 0, globalRotation: 0, localRotation: 0};
-// {speed: 0.02, neighborhoodRadius: 0.09, globalRotation: 0.40, localRotation: 0.16}
-// {speed: 0.006, neighborhoodRadius: 0.09, globalRotation: -0.1, localRotation: 0.12}
-{speed: 0.004, neighborhoodRadius: 0.261, globalRotation: 0.009, localRotation: 0.005}
+// {speed: 0.02, neighborhoodRadius: 0.09, globalRotation: 0.40, localRotation: 0.16};
+{speed: 0.006, neighborhoodRadius: 0.09, globalRotation: -0.1, localRotation: 0.12};
+// {speed: 0.004, neighborhoodRadius: 0.261, globalRotation: 0.009, localRotation: 0.005};
 const paramsData = new Float32Array(Object.keys(ppsParams).length);
 
 // Set up compute pipelines
