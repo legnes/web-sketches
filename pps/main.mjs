@@ -2,7 +2,7 @@
 const DEG_TO_RAD = Math.PI / 180;
 
 const loadShader = async (name) => {
-  const response = await fetch(`../shaders/webgpu/built/${name}.spv`);
+  const response = await fetch(`../assets/shaders/webgpu/built/${name}.spv`);
   const data = await response.arrayBuffer();
   return new Uint32Array(data);
 };

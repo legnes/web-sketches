@@ -1,5 +1,5 @@
-import bunny from '../meshes/bunny.mjs';
-import { mat4, vec3, vec2 } from '../lib/gl-matrix.mjs';
+import bunny from '../assets/meshes/bunny.mjs';
+import { mat4, vec3, vec2 } from '../assets/lib/gl-matrix.mjs';
 
 // TODO:
 //  - [ ] fix color quantizings
@@ -99,7 +99,7 @@ function randCircle(out) {
 }
 
 const loadShader = async (name) => {
-  const response = await fetch(`../shaders/webgpu/built/${name}.spv`);
+  const response = await fetch(`../assets/shaders/webgpu/built/${name}.spv`);
   const data = await response.arrayBuffer();
   return new Uint32Array(data);
 };
