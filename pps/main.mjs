@@ -30,6 +30,10 @@ context.configure({
 // TODO: I think size bottleneck is with accumulation calculation
 // The accumulation memory access pattern runs faster than naive loop
 // but things are still pretty slow because the calculations are slow
+// Should implement a FRNN approach, e.g.
+// https://on-demand.gputechconf.com/gtc/2014/presentations/S4117-fast-fixed-radius-nearest-neighbor-gpu.pdf
+// https://github.com/kodai100/Unity_GPUNearestNeighbor
+// (use bitonic sort?)
 const NUM_AGENTS = 8192;
 const ACCUMULATE_FORCES_WORGROUP_SIZE = 64;
 const UPDATE_AGENTS_WORGROUP_SIZE = 32;

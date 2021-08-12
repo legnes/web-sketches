@@ -1,10 +1,8 @@
 import bunny from '../meshes/bunny.mjs';
-import { mat4, vec3 } from '../lib/gl-matrix.mjs';
+import { mat4, vec3, vec2 } from '../lib/gl-matrix.mjs';
 
 // TODO:
-//  - [ ] fix color quantizing (accum in float and do final blit)
-//  - [ ] aperture shapes
-//  - [ ] blue noise/fake noise
+//  - [ ] fix color quantizings
 //  - [ ] make sure early z/depth/frag test is running (explicit flag? no alpha channel?)
 //  - [ ] refactor everything
 //  - [ ] accum temporally (w no rotation)????
@@ -43,6 +41,60 @@ function skewedFrustumZO(out, left, right, bottom, top, near, far, dx, dy, focus
   out[13] = 0;
   out[14] = far * near * nf;
   out[15] = 0;
+  return out;
+}
+
+// Returns a point in a square centered at the origin with side length 2 (-1, 1)
+// Uses R2 sampling from
+// http://extremelearning.com.au/unreasonable-effectiveness-of-quasirandom-sequences/
+const g = 1.32471795724474602596;
+const a1 = 1 / g;
+const a2 = 1 / (g * g);
+let _n = 0;
+function randSquare(out, seed) {
+  let n = seed;
+  if (typeof n === 'undefined') {
+    n = _n++;
+  }
+
+  out[0] = ((0.5 + a1 * n) % 1) * 2 - 1;
+  out[1] = ((0.5 + a2 * n) % 1) * 2 - 1;
+  return out;
+}
+
+const heptagonPoints = Array.from({ length: 7 }, (val, i) => {
+  const theta = (Math.PI / 2) + (Math.PI * 2 / 7 * i);
+  return [ Math.cos(theta), Math.sin(theta) ];
+});
+const pToVert1 = [];
+const pToVert2 = [];
+const crossProd = [];
+function isInHeptagon(point) {
+  for (let i = 0, j = 6; i < 7; j = i++) {
+    vec2.sub(pToVert1, heptagonPoints[j], point);
+    vec2.sub(pToVert2, heptagonPoints[i], point);
+    vec2.cross(crossProd, pToVert1, pToVert2);
+    if (crossProd[2] < 0) return false;
+  }
+  return true;
+}
+
+function randHeptagon(out) {
+  // TODO: can do better than rejection sampling?
+  let isInBounds = false;
+  while (!isInBounds) {
+    randSquare(out);
+    isInBounds = isInHeptagon(out);
+  }
+  return out;
+}
+
+function randCircle(out) {
+  // TODO: Use golden spiral/circular R2 Won came up with
+  const r = Math.sqrt(Math.random());
+  const theta = Math.random() * 2 * Math.PI
+  out[0] = r * Math.cos(theta);
+  out[1] = r * Math.sin(theta);
   return out;
 }
 
@@ -85,7 +137,9 @@ const jitteredViewMatrix = mat4.create();
 const numJitters = 16;
 const jitterNorm = 1 / numJitters;
 const normConstant = [jitterNorm, jitterNorm, jitterNorm, jitterNorm];
-const jitters = Array.from({ length: numJitters }).map(() => ([Math.random() * 2 * Math.PI, Math.sqrt(Math.random())]));
+// const jitters = Array.from({ length: numJitters }).map(() => randSquare([]));
+// const jitters = Array.from({ length: numJitters }).map(() => randCircle([]));
+const jitters = Array.from({ length: numJitters }).map(() => randHeptagon([]));
 
 // DOF variables
 let focalDist = 20;
@@ -167,7 +221,7 @@ const sampler = device.createSampler();
 const texture = device.createTexture({
   size: [canvas.width, canvas.height, 1],
   format: presentationFormat,
-  usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.SAMPLED | GPUTextureUsage.SHADER_READ
+  usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING
 });
 
 // Pipeline
@@ -346,8 +400,8 @@ function frame() {
 
   for (let i = 0; i < jitters.length; i++) {
     // Update jitter
-    const dx = jitters[i][1] * Math.cos(jitters[i][0]) * aperture;
-    const dy = jitters[i][1] * Math.sin(jitters[i][0]) * aperture;
+    const dx = jitters[i][0] * aperture;
+    const dy = jitters[i][1] * aperture;
     vec3.zero(jitter);
     vec3.scaleAndAdd(jitter, jitter, cameraRight, -dx);
     vec3.scaleAndAdd(jitter, jitter, cameraUp, -dy);
