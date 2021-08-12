@@ -52,14 +52,14 @@ const paramsData = new Float32Array(Object.keys(ppsParams).length);
 // Set up compute pipelines
 const accumulateForcesPipeline = device.createComputePipeline({
   compute: {
-    module: device.createShaderModule({ code: await loadShader('ppsAccumulateForces.comp') }),
+    module: device.createShaderModule({ code: await loadShader('pps-accumulate-forces.comp') }),
     entryPoint: 'main',
   },
 });
 
 const updateAgentsPipeline = device.createComputePipeline({
   compute: {
-    module: device.createShaderModule({ code: await loadShader('ppsUpdateAgents.comp') }),
+    module: device.createShaderModule({ code: await loadShader('pps-update-agents.comp') }),
     entryPoint: 'main',
   },
 });
