@@ -1,232 +1,166 @@
+// TODO:
+//  - Figure out momentum conservation at small v and/or dt
+//  - Add obstacle
+
 // Helpers
 const loadShader = async (name) => {
   const response = await fetch(`../assets/shaders/${name}.glsl`);
   const shader = await response.text();
-  console.log(shader);
+  return shader;
+};
+
+const buildShader = async (gl, name) => {
+  let shaderType = null;
+  if (/\.vert$/.test(name)) shaderType = gl.VERTEX_SHADER;
+  if (/\.frag/.test(name)) shaderType = gl.FRAGMENT_SHADER;
+  if (!shaderType) throw new Error(`Unable to determine type of shader ${name}`);
+  const shaderSource = await loadShader(name);
+  const shader = gl.createShader(shaderType);
+  gl.shaderSource(shader, shaderSource);
+  gl.compileShader(shader);
+  if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+    throw new Error(`error in shader ${name}: ${gl.getShaderInfoLog(shader)}`);
+  }
+  return shader;
+};
+
+const buildProgram = async (gl, vertexShaderName, fragmentShaderName) => {
+  // TODO: parallelize
+  const program = gl.createProgram();
+  gl.attachShader(program, await buildShader(gl, vertexShaderName));
+  gl.attachShader(program, await buildShader(gl, fragmentShaderName));
+  gl.linkProgram(program);
+  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+    throw new Error(`error in program using ${vertexShaderName} and ${fragmentShaderName}: ${gl.getProgramInfoLog(program)}`);
+  }
+  return program;
 };
 
 // WebGL
 const canvas = document.getElementById('webgl-canvas');
-const context = canvas.getContext('webgl');
+const gl = canvas.getContext('webgl');
 
-if (!context) {
+if (!gl) {
   alert('WebGL is not supported/enabled in your browser');
   throw new Error('Could not find WebGL');
 }
 
-// const presentationFormat = context.getPreferredFormat(adapter);
-// const depthFormat = 'depth24plus';
-// context.configure({
-//   device,
-//   format: presentationFormat
-// });
+const simulationProgram = await buildProgram(gl, 'fullscreen-quad.vert', 'reintegration-tracking-simulation.frag');
+const displayProgram = await buildProgram(gl, 'fullscreen-quad.vert', 'reintegration-tracking-display.frag');
 
-// Constants
-// const NUM_AGENTS = 8192;
-// const ACCUMULATE_FORCES_WORGROUP_SIZE = 64;
-// const UPDATE_AGENTS_WORGROUP_SIZE = 32;
+// Setup fullscreen quad geometry
+const verts = [
+   1.0,  1.0,
+  -1.0,  1.0,
+  -1.0, -1.0,
+  -1.0, -1.0,
+   1.0, -1.0,
+   1.0,  1.0
+];
+const fullscreenQuadVBO = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, fullscreenQuadVBO);
+gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(verts), gl.STATIC_DRAW);
 
-// Define simulation data
-// const agentData = new Float32Array(NUM_AGENTS * 4);
-// const forcesSize = NUM_AGENTS * 4 * 4;
+// Initialize data textures
+const textures = [ gl.createTexture(), gl.createTexture() ];
 
-// const ppsParams =
-// // {speed: 0, neighborhoodRadius: 0, globalRotation: 0, localRotation: 0};
-// // {speed: 0.02, neighborhoodRadius: 0.09, globalRotation: 0.40, localRotation: 0.16};
-// {speed: 0.006, neighborhoodRadius: 0.09, globalRotation: -0.1, localRotation: 0.12};
-// // {speed: 0.004, neighborhoodRadius: 0.261, globalRotation: 0.009, localRotation: 0.005};
-// const paramsData = new Float32Array(Object.keys(ppsParams).length);
+// Initialize simulation data
+const simulationWidth = 256;
+const simulationHeight = 256;
+const initialData = new Uint8Array(simulationWidth * simulationHeight * 4);
+const getRandomVec2AsUint8 = () => (Math.round(Math.random() * 15) * 16 + Math.round(Math.random() * 15));
+function resetSimulation() {
+  for (let i = 0; i < simulationHeight * simulationWidth; i++) {
+    // Position
+    initialData[i * 4 + 0] = getRandomVec2AsUint8();
+    // Velocity
+    initialData[i * 4 + 1] = getRandomVec2AsUint8();
+    // Mass
+    initialData[i * 4 + 2] = 0;
+    initialData[i * 4 + 3] = Math.round(Math.random() * 255);
+  }
+  // const initialCoord = (simulationWidth * 4 + 12) * 4;
+  // initialData[initialCoord + 0] = 136;
+  // initialData[initialCoord + 1] = 248; //136;
+  // initialData[initialCoord + 2] = 0;
+  // initialData[initialCoord + 3] = 100;
 
-// Set up compute pipelines
-// const accumulateForcesPipeline = device.createComputePipeline({
-//   compute: {
-//     module: device.createShaderModule({ code: await loadShader('ppsAccumulateForces.comp') }),
-//     entryPoint: 'main',
-//   },
-// });
-
-// const updateAgentsPipeline = device.createComputePipeline({
-//   compute: {
-//     module: device.createShaderModule({ code: await loadShader('ppsUpdateAgents.comp') }),
-//     entryPoint: 'main',
-//   },
-// });
-
-// Set up compute buffers
-// const forcesBuffer = device.createBuffer({
-//   size: forcesSize,
-//   usage: GPUBufferUsage.STORAGE,
-// });
-
-// const agentsBuffer = device.createBuffer({
-//   size: agentData.byteLength,
-//   usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.VERTEX | GPUBufferUsage.STORAGE,
-// });
-
-// const paramsBuffer = device.createBuffer({
-//   size: paramsData.byteLength,
-//   usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.UNIFORM,
-// });
-
-// // Pass buffers and uniforms
-// function resetPositions() {
-//   for (let i = 0; i < NUM_AGENTS; i++) {
-//     const baseIndex = i * 4;
-//     agentData[baseIndex + 0] = Math.random() * 2 - 1;
-//     agentData[baseIndex + 1] = Math.random() * 2 - 1;
-//     agentData[baseIndex + 2] = 1;
-//     agentData[baseIndex + 3] = Math.random() * 2 * Math.PI;
-//   }
-//   device.queue.writeBuffer(agentsBuffer, 0, agentData);
-// }
-// resetPositions();
-
-// function updatePpsParams() {
-//   paramsData[0] = ppsParams.speed;
-//   paramsData[1] = ppsParams.neighborhoodRadius;
-//   paramsData[2] = ppsParams.globalRotation;
-//   paramsData[3] = ppsParams.localRotation;
-//   device.queue.writeBuffer(paramsBuffer, 0, paramsData);
-// }
-// updatePpsParams();
-
-// // Bind compute buffers
-// const computeBindGroupEntries = [{
-//   binding: 0,
-//   resource: {
-//     buffer: paramsBuffer,
-//     offset: 0,
-//     size: paramsData.byteLength
-//   }
-// },{
-//   binding: 1,
-//   resource: {
-//     buffer: agentsBuffer,
-//     offset: 0,
-//     size: agentData.byteLength,
-//   }
-// }, {
-//   binding: 2,
-//   resource: {
-//     buffer: forcesBuffer,
-//     offset: 0,
-//     size: forcesSize,
-//   }
-// }]
-
-// const accumulateForcesBindGroup = device.createBindGroup({
-//   layout: accumulateForcesPipeline.getBindGroupLayout(0),
-//   entries: computeBindGroupEntries
-// });
-
-// const updateAgentsBindGroup = device.createBindGroup({
-//   layout: updateAgentsPipeline.getBindGroupLayout(0),
-//   entries: computeBindGroupEntries
-// });
-
-// // Set up render pipeline
-// const renderPipeline = device.createRenderPipeline({
-//   vertex: {
-//     module: device.createShaderModule({ code: await loadShader('instanced-triangle.vert') }),
-//     entryPoint: 'main',
-//     buffers: [{
-//       arrayStride: 4 * 4,
-//       stepMode: 'instance',
-//       attributes: [{
-//         format: 'float32x3',
-//         offset: 0,
-//         shaderLocation: 0
-//       }, {
-//         format: 'float32',
-//         offset: 4 * 3,
-//         shaderLocation: 1
-//       }]
-//     }]
-//   },
-//   fragment: {
-//     module: device.createShaderModule({ code: await loadShader('debug.frag') }),
-//     entryPoint: 'main',
-//     targets: [{
-//       format: presentationFormat
-//     }]
-//   },
-//   primitive: {
-//     topology: 'triangle-list',
-//   },
-// });
-
-// const renderPassDescriptor = {
-//   colorAttachments: [{
-//     view: undefined,
-//     loadValue: [.94, .9, .9, 1]
-//   }]
-// };
-
-// // Handle interaction
-// function randomRange(min, max) {
-//   return +(min + (max - min) * Math.random()).toFixed(3);
-// }
-
-// function resetAndRandomizePpsParams() {
-//   resetPositions();
-//   ppsParams.speed = randomRange(0, 0.01);
-//   ppsParams.neighborhoodRadius = randomRange(0, 0.5);
-//   ppsParams.globalRotation = randomRange(-Math.PI * 0.1, Math.PI * 0.1);
-//   ppsParams.localRotation = randomRange(0, Math.PI * 0.1);
-//   console.log(ppsParams);
-//   updatePpsParams();
-//   updatePpsParamsDisplay();
-// }
-
-// function updatePpsParamsDisplay() {
-//   for (const key in ppsParams) {
-//     document.getElementById(`${key}Value`).textContent = ppsParams[key];
-//     document.getElementById(`${key}Input`).value = ppsParams[key];
-//   }
-// }
-// updatePpsParamsDisplay();
-
-// document.getElementById('resetSimInput').addEventListener('click', resetPositions);
-// document.getElementById('randomizeParamsInput').addEventListener('click', resetAndRandomizePpsParams);
-// for (const key in ppsParams) {
-//   document.getElementById(`${key}Input`).addEventListener('input', (evt) => {
-//     ppsParams[key] = +evt.target.value;
-//     updatePpsParams();
-//     updatePpsParamsDisplay();
-//   });
-// }
-
-// Render
-function frame() {
-  // Handle all swapping
-  // renderPassDescriptor.colorAttachments[0].view = context.getCurrentTexture().createView();
-
-  // // Run frame
-  // const commandEncoder = device.createCommandEncoder();
-
-  // // First draw previous calculations (or initial conditions)
-  // const renderPass = commandEncoder.beginRenderPass(renderPassDescriptor);
-  // renderPass.setPipeline(renderPipeline);
-  // renderPass.setVertexBuffer(0, agentsBuffer);
-  // renderPass.draw(3, NUM_AGENTS, 0, 0, 0);
-  // renderPass.endPass();
-
-  // // Then compute next draw
-  // const accumulateForcesPass = commandEncoder.beginComputePass();
-  // accumulateForcesPass.setPipeline(accumulateForcesPipeline);
-  // accumulateForcesPass.setBindGroup(0, accumulateForcesBindGroup);
-  // accumulateForcesPass.dispatch(NUM_AGENTS / ACCUMULATE_FORCES_WORGROUP_SIZE);
-  // accumulateForcesPass.endPass();
-
-  // const updateAgentsPass = commandEncoder.beginComputePass();
-  // updateAgentsPass.setPipeline(updateAgentsPipeline);
-  // updateAgentsPass.setBindGroup(0, updateAgentsBindGroup);
-  // updateAgentsPass.dispatch(NUM_AGENTS / UPDATE_AGENTS_WORGROUP_SIZE);
-  // updateAgentsPass.endPass();
-
-  // device.queue.submit([ commandEncoder.finish() ]);
-
-  // requestAnimationFrame(frame);
+  // Pass data to textures
+  for (let i = 0; i < 2; i++) {
+    const texture = textures[i];
+    gl.bindTexture(gl.TEXTURE_2D, texture);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, simulationWidth, simulationHeight, 0, gl.RGBA, gl.UNSIGNED_BYTE, initialData);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    textures.push(texture);
+  }
 }
+resetSimulation();
 
+// Set up framebuffers using same textures
+const frameBuffers = textures.map((texture) => {
+  const frameBuffer = gl.createFramebuffer();
+  gl.bindFramebuffer(gl.FRAMEBUFFER, frameBuffer);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texture, 0);
+  return frameBuffer;
+});
+gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+
+// Handle inputs
+const inputSimulationUniforms = {
+  uDiffusionRadius: 0.8,
+  uForceX: 0,
+  uForceY: 0,
+};
+for (const uniformName in inputSimulationUniforms) {
+  const uniformInputElt = document.getElementById(`${uniformName}Input`);
+  const uniformDisplayElt = document.getElementById(`${uniformName}Display`);
+  uniformInputElt.addEventListener('input', evt => {
+    inputSimulationUniforms[uniformName] = +evt.target.value;
+    uniformDisplayElt.textContent = evt.target.value;
+  });
+  uniformInputElt.value = inputSimulationUniforms[uniformName];
+  uniformDisplayElt.textContent = inputSimulationUniforms[uniformName];
+}
+document.getElementById('resetSimInput').addEventListener('click', resetSimulation);
+
+let frameNumber = -1;
+function frame() {
+  // Update frame
+  frameNumber++;
+  const readIndex = frameNumber % 2;
+  const writeIndex = 1 - readIndex;
+
+  // Simulation
+  gl.useProgram(simulationProgram);
+  const aPositionLocationSimulation = gl.getAttribLocation(simulationProgram, "aPosition");
+  gl.vertexAttribPointer(aPositionLocationSimulation, 2, gl.FLOAT, false, 0, 0);
+  gl.enableVertexAttribArray(aPositionLocationSimulation);
+  const uSimulationDataLocationSimulation = gl.getUniformLocation(simulationProgram, "uSimulationData");
+  gl.uniform1i(uSimulationDataLocationSimulation, 0);
+  gl.bindTexture(gl.TEXTURE_2D, textures[readIndex]);
+  for (const uniformName in inputSimulationUniforms) {
+    const location = gl.getUniformLocation(simulationProgram, uniformName);
+    gl.uniform1f(location, inputSimulationUniforms[uniformName]);
+  }
+  gl.viewport(0, 0, simulationWidth, simulationHeight);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, frameBuffers[writeIndex]);
+  gl.drawArrays(gl.TRIANGLES, 0, 6);
+
+  // Display
+  gl.useProgram(displayProgram);
+  const aPositionLocationDisplay = gl.getAttribLocation(displayProgram, "aPosition");
+  gl.vertexAttribPointer(aPositionLocationDisplay, 2, gl.FLOAT, false, 0, 0);
+  gl.enableVertexAttribArray(aPositionLocationDisplay);
+  const uSimulationDataLocationDisplay = gl.getUniformLocation(displayProgram, "uSimulationData");
+  gl.uniform1i(uSimulationDataLocationDisplay, 0);
+  gl.bindTexture(gl.TEXTURE_2D, textures[writeIndex]);
+  gl.viewport(0, 0, canvas.width, canvas.height);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  gl.drawArrays(gl.TRIANGLES, 0, 6);
+
+  requestAnimationFrame(frame);
+}
 requestAnimationFrame(frame);
