@@ -1,6 +1,6 @@
 // TODO:
+//  - Use SPH in addition to artificial forces
 //  - Figure out momentum conservation at small v and/or dt
-//  - Add obstacle
 
 // Helpers
 const loadShader = async (name) => {
@@ -65,8 +65,8 @@ gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(verts), gl.STATIC_DRAW);
 const textures = [ gl.createTexture(), gl.createTexture() ];
 
 // Initialize simulation data
-const simulationWidth = 256;
-const simulationHeight = 256;
+const simulationWidth = 512;
+const simulationHeight = 512;
 const initialData = new Uint8Array(simulationWidth * simulationHeight * 4);
 const getRandomVec2AsUint8 = () => (Math.round(Math.random() * 15) * 16 + Math.round(Math.random() * 15));
 function resetSimulation() {

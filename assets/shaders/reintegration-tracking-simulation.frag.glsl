@@ -1,6 +1,6 @@
 precision mediump float;
 
-#define RESOLUTION 256.0
+#define RESOLUTION 512.0
 #define SEARCH_RADIUS 4
 #define FIXED_DT 5. // TODO: Can lower this when mass is conserved
 #define FORCE_SCALE 0.5

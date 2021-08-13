@@ -1,6 +1,6 @@
 precision mediump float;
 
-#define RESOLUTION 256.0
+#define RESOLUTION 512.0
 
 varying vec2 vUV;
 
