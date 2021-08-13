@@ -4,6 +4,7 @@ precision mediump float;
 #define SEARCH_RADIUS 4
 #define FIXED_DT 5. // TODO: Can lower this when mass is conserved
 #define FORCE_SCALE 0.5
+#define OBSTACLE_RADIUS 0.05
 
 varying vec2 vUV;
 
@@ -60,8 +61,11 @@ vec3 calculateOverlap(vec2 particlePosition, vec2 gridPosition) {
 void main(void) {
   vec2 selfTexelCoord = floor(vUV * RESOLUTION) + 0.5;
   vec2 selfUV = selfTexelCoord / RESOLUTION;
+  vec2 centerToSelf = selfUV - 0.5;
+  float isColliding = 1. - step(OBSTACLE_RADIUS, length(centerToSelf));
   Particle self = Particle(vec2(0.), vec2(0.), 0.);
 
+  // Based on https://michaelmoroz.github.io/Reintegration-Tracking/
   for (int x = -SEARCH_RADIUS; x <= SEARCH_RADIUS; x++) {
     for(int y = -SEARCH_RADIUS; y <= SEARCH_RADIUS; y++) {
       vec2 otherUV = selfUV + vec2(x, y) / RESOLUTION;
@@ -84,6 +88,9 @@ void main(void) {
     self.position /= self.mass;
     self.velocity /= self.mass;
     self.velocity += vec2(uForceX, uForceY) * FORCE_SCALE / self.mass * FIXED_DT;
+    if (isColliding > 0.5 && dot(centerToSelf, self.velocity) < 0.) {
+      self.velocity = reflect(self.velocity, normalize(centerToSelf));
+    }
   }
 
   gl_FragColor = packParticle(self, selfUV);
