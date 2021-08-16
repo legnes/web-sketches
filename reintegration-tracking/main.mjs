@@ -1,6 +1,6 @@
 // TODO:
 //  - Use SPH in addition to artificial forces
-//  - Figure out momentum conservation at small v and/or dt
+//  - Input/animate collider & emitter vars
 
 // Helpers
 const loadShader = async (name) => {

@@ -7,12 +7,10 @@ precision mediump float;
 #define FIXED_DT 1.0001 // Min change in position has to be >= min step of position
 #define FORCE_SCALE 4.
 
-#define COLLIDER_U 0.6
-#define COLLIDER_V 0.5
+#define COLLIDER_UV vec2(0.6, 0.5)
 #define COLLIDER_RADIUS_PIXELS 25.
 
-#define EMITTER_U 0.4
-#define EMITTER_V 0.52
+#define EMITTER_UV vec2(0.4, 0.52)
 #define EMITTER_RADIUS_PIXELS 2.
 
 varying vec2 vUV;
@@ -95,13 +93,13 @@ void main(void) {
     self.velocity += vec2(uForceX, uForceY) * FORCE_SCALE / self.mass * FIXED_DT;
   }
 
-  vec2 colliderToSelf = self.position - vec2(COLLIDER_U, COLLIDER_V) * RESOLUTION;
+  vec2 colliderToSelf = self.position - COLLIDER_UV * RESOLUTION;
   float isColliding = 1. - step(COLLIDER_RADIUS_PIXELS, length(colliderToSelf));
   if (isColliding > 0.5 && dot(colliderToSelf, self.velocity) < 0.) {
     self.velocity = reflect(self.velocity, normalize(colliderToSelf));
   }
 
-  vec2 emitterToSelf = selfUV - vec2(EMITTER_U, EMITTER_V);
+  vec2 emitterToSelf = selfUV - EMITTER_UV;
   float isEmitting = 1. - step(EMITTER_RADIUS_PIXELS / RESOLUTION, length(emitterToSelf));
   if (isEmitting > 0.5) {
     self.mass = 500.;
