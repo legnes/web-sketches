@@ -39,7 +39,7 @@ vec2 unpackUint8ToVec2(float val) {
 
 vec4 packParticle(Particle particle, vec2 uv) {
   float position = packVec2ToUint8(particle.position - uv * RESOLUTION + 0.5);
-  float velocity = packVec2ToUint8((particle.velocity) * 0.5 + 0.5);
+  float velocity = packVec2ToUint8(clamp(particle.velocity, -1., 1.) * 0.5 + 0.5);
   float massShifted = floor(particle.mass / 256.);
   float massMsd = massShifted / 255.;
   float massLsd = (particle.mass - massShifted * 256.) / 255.;
