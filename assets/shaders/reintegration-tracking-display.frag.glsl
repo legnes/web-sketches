@@ -1,13 +1,13 @@
 precision mediump float;
 
 #define RESOLUTION 512.0
+#define MAX_INT4_VALUE 14.
 
 varying vec2 vUV;
 
 uniform sampler2D uSimulationData;
 
-struct Particle
-{
+struct Particle {
   vec2 position;
   vec2 velocity;
   float mass;
@@ -17,7 +17,7 @@ vec2 unpackUint8ToVec2(float val) {
   float intVal = floor(val * 255.);
   float intX = floor(intVal / 16.);
   float intY = intVal - (intX * 16.);
-  return vec2(intX, intY) / 15.;
+  return vec2(intX, intY) / MAX_INT4_VALUE;
 }
 
 Particle unpackParticle(vec2 uv) {

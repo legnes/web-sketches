@@ -65,10 +65,12 @@ gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(verts), gl.STATIC_DRAW);
 const textures = [ gl.createTexture(), gl.createTexture() ];
 
 // Initialize simulation data
+const MAX_INT4_VALUE = 14;
+const ZERO_INT4_VALUE = 119;
 const simulationWidth = 512;
 const simulationHeight = 512;
 const initialData = new Uint8Array(simulationWidth * simulationHeight * 4);
-const getRandomVec2AsUint8 = () => (Math.round(Math.random() * 15) * 16 + Math.round(Math.random() * 15));
+const getRandomVec2AsUint8 = () => (Math.round(Math.random() * MAX_INT4_VALUE) * 16 + Math.round(Math.random() * MAX_INT4_VALUE));
 function resetSimulation() {
   for (let i = 0; i < simulationHeight * simulationWidth; i++) {
     // Position
@@ -79,11 +81,16 @@ function resetSimulation() {
     initialData[i * 4 + 2] = 0;
     initialData[i * 4 + 3] = Math.round(Math.random() * 255);
   }
-  // const initialCoord = (simulationWidth * 4 + 12) * 4;
-  // initialData[initialCoord + 0] = 136;
-  // initialData[initialCoord + 1] = 248; //136;
-  // initialData[initialCoord + 2] = 0;
-  // initialData[initialCoord + 3] = 100;
+  // const initialCoord = (simulationWidth * 8 + 7) * 4;
+  // initialData[initialCoord + 0] = ZERO_INT4_VALUE;
+  // initialData[initialCoord + 1] = 135;
+  // initialData[initialCoord + 2] = 10;
+  // initialData[initialCoord + 3] = 255;
+  // 0-14
+  // 0-6, 7, 8-14
+  // 01110000 --> 112
+  // 01110111 --> 119
+  // 10000111 --> 135
 
   // Pass data to textures
   for (let i = 0; i < 2; i++) {
@@ -110,7 +117,7 @@ gl.bindFramebuffer(gl.FRAMEBUFFER, null);
 
 // Handle inputs
 const inputSimulationUniforms = {
-  uDiffusionRadius: 0.8,
+  uDiffusionRadius: 0.6,
   uForceX: 0,
   uForceY: 0,
 };

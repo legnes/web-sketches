@@ -1,10 +1,19 @@
 precision mediump float;
 
 #define RESOLUTION 512.0
+#define MAX_INT4_VALUE 14.
+
 #define SEARCH_RADIUS 4
-#define FIXED_DT 5. // TODO: Can lower this when mass is conserved
-#define FORCE_SCALE 0.5
-#define OBSTACLE_RADIUS 0.05
+#define FIXED_DT 1.0001 // Min change in position has to be >= min step of position
+#define FORCE_SCALE 4.
+
+#define COLLIDER_U 0.6
+#define COLLIDER_V 0.5
+#define COLLIDER_RADIUS_PIXELS 25.
+
+#define EMITTER_U 0.4
+#define EMITTER_V 0.52
+#define EMITTER_RADIUS_PIXELS 2.
 
 varying vec2 vUV;
 
@@ -13,27 +22,26 @@ uniform float uDiffusionRadius;
 uniform float uForceX;
 uniform float uForceY;
 
-struct Particle
-{
+struct Particle {
   vec2 position;
   vec2 velocity;
   float mass;
 };
 
 float packVec2ToUint8(vec2 val) {
-  return clamp((floor(val.x * 15. + .5) * 16. + floor(val.y * 15. + .5)) / 255., 0., 1.);
+  return clamp((floor(val.x * MAX_INT4_VALUE + .5) * 16. + floor(val.y * MAX_INT4_VALUE + .5)) / 255., 0., 1.);
 }
 
 vec2 unpackUint8ToVec2(float val) {
   float intVal = floor(val * 255.);
   float intX = floor(intVal / 16.);
   float intY = intVal - (intX * 16.);
-  return vec2(intX, intY) / 15.;
+  return vec2(intX, intY) / MAX_INT4_VALUE;
 }
 
 vec4 packParticle(Particle particle, vec2 uv) {
   float position = packVec2ToUint8(particle.position - uv * RESOLUTION + 0.5);
-  float velocity = packVec2ToUint8(particle.velocity * 0.5 + 0.5);
+  float velocity = packVec2ToUint8((particle.velocity) * 0.5 + 0.5);
   float massShifted = floor(particle.mass / 256.);
   float massMsd = massShifted / 255.;
   float massLsd = (particle.mass - massShifted * 256.) / 255.;
@@ -59,10 +67,8 @@ vec3 calculateOverlap(vec2 particlePosition, vec2 gridPosition) {
 }
 
 void main(void) {
-  vec2 selfTexelCoord = floor(vUV * RESOLUTION) + 0.5;
-  vec2 selfUV = selfTexelCoord / RESOLUTION;
-  vec2 centerToSelf = selfUV - 0.5;
-  float isColliding = 1. - step(OBSTACLE_RADIUS, length(centerToSelf));
+  vec2 selfTexel = floor(vUV * RESOLUTION) + 0.5;
+  vec2 selfUV = selfTexel / RESOLUTION;
   Particle self = Particle(vec2(0.), vec2(0.), 0.);
 
   // Based on https://michaelmoroz.github.io/Reintegration-Tracking/
@@ -70,10 +76,9 @@ void main(void) {
     for(int y = -SEARCH_RADIUS; y <= SEARCH_RADIUS; y++) {
       vec2 otherUV = selfUV + vec2(x, y) / RESOLUTION;
       Particle other = unpackParticle(otherUV);
-      // TODO: I think at small dt and small velocities, mass explodes because maybe of the position quantization
       other.position += other.velocity * FIXED_DT;
 
-      vec3 overlapData = calculateOverlap(other.position, selfTexelCoord);
+      vec3 overlapData = calculateOverlap(other.position, selfTexel);
       vec2 overlapCenterOfMass = overlapData.xy;
       float overlapRelativeArea = overlapData.z;
       float overlapMass = overlapRelativeArea * other.mass;
@@ -88,9 +93,20 @@ void main(void) {
     self.position /= self.mass;
     self.velocity /= self.mass;
     self.velocity += vec2(uForceX, uForceY) * FORCE_SCALE / self.mass * FIXED_DT;
-    if (isColliding > 0.5 && dot(centerToSelf, self.velocity) < 0.) {
-      self.velocity = reflect(self.velocity, normalize(centerToSelf));
-    }
+  }
+
+  vec2 colliderToSelf = self.position - vec2(COLLIDER_U, COLLIDER_V) * RESOLUTION;
+  float isColliding = 1. - step(COLLIDER_RADIUS_PIXELS, length(colliderToSelf));
+  if (isColliding > 0.5 && dot(colliderToSelf, self.velocity) < 0.) {
+    self.velocity = reflect(self.velocity, normalize(colliderToSelf));
+  }
+
+  vec2 emitterToSelf = selfUV - vec2(EMITTER_U, EMITTER_V);
+  float isEmitting = 1. - step(EMITTER_RADIUS_PIXELS / RESOLUTION, length(emitterToSelf));
+  if (isEmitting > 0.5) {
+    self.mass = 500.;
+    self.position = vec2(0.);
+    self.velocity = vec2(uForceX, uForceY);
   }
 
   gl_FragColor = packParticle(self, selfUV);
