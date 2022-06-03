@@ -145,7 +145,7 @@ const SPIN_SPEED = Math.PI / 4 / 1000;
 // DOF constants
 const jitter = vec3.create();
 const jitteredViewMatrix = mat4.create();
-const numJitters = 32;
+const numJitters = 24;
 const jitterNorm = 1 / numJitters;
 const normConstant = [jitterNorm, jitterNorm, jitterNorm, jitterNorm];
 // const jitters = Array.from({ length: numJitters }).map(() => randSquare([]));
@@ -440,6 +440,31 @@ const clearPassDescriptor = {
   }]
 };
 
+// Bundle
+// SE TODO: would love to be able to like bundle the bundles, but we alternate pass descriptors
+const sceneBundles = [];
+for (let i = 0; i < jitters.length; i++) {
+  const sceneBundleEncoder = device.createRenderBundleEncoder({
+    colorFormats: [presentationFormat],
+    depthStencilFormat: depthFormat
+  });
+  sceneBundleEncoder.setPipeline(scenePipeline);
+  sceneBundleEncoder.setVertexBuffer(0, verticesBuffer);
+  sceneBundleEncoder.setVertexBuffer(1, instancesBuffer);
+  sceneBundleEncoder.setIndexBuffer(indicesBuffer, 'uint16');
+  sceneBundleEncoder.setBindGroup(0, rotationBindGroup);
+  sceneBundleEncoder.setBindGroup(1, sceneBindGroups[i]);
+  sceneBundleEncoder.drawIndexed(bunny.indices.length, NUM_INSTANCES, 0, 0, 0);
+  sceneBundles.push(sceneBundleEncoder.finish());
+}
+const blitBundleEncoder = device.createRenderBundleEncoder({
+  colorFormats: [presentationFormat]
+});
+blitBundleEncoder.setPipeline(blitPipeline);
+blitBundleEncoder.setBindGroup(0, blitBindGroup);
+blitBundleEncoder.draw(6, 1, 0, 0);
+const blitBundle = blitBundleEncoder.finish();
+
 // Render
 let previousFrameTime = Date.now();
 function frame() {
@@ -466,23 +491,19 @@ function frame() {
     // Send commands
     const commandEncoder = device.createCommandEncoder();
 
+    // SE TODO: to resolve color quantization, render and blit accum to float, then blit once more with tonemap
+    // SE TODO: figure out how to accum --> float without blit (depth check still writes or smth)?
+    // SE TODO: improve bundling by un-interleaving!!! (see above)
+
     // Scene pass
     const scenePassEncoder = commandEncoder.beginRenderPass(scenePassDescriptor);
-    scenePassEncoder.setPipeline(scenePipeline);
-    scenePassEncoder.setVertexBuffer(0, verticesBuffer);
-    scenePassEncoder.setVertexBuffer(1, instancesBuffer);
-    scenePassEncoder.setIndexBuffer(indicesBuffer, 'uint16');
-    scenePassEncoder.setBindGroup(0, rotationBindGroup);
-    scenePassEncoder.setBindGroup(1, sceneBindGroups[i]);
-    scenePassEncoder.drawIndexed(bunny.indices.length, NUM_INSTANCES, 0, 0, 0);
+    scenePassEncoder.executeBundles([ sceneBundles[i] ])
     scenePassEncoder.end();
 
     // Blit pass
     const blitPassEncoder = commandEncoder.beginRenderPass(blitPassDescriptor);
-    blitPassEncoder.setPipeline(blitPipeline);
-    blitPassEncoder.setBindGroup(0, blitBindGroup);
     blitPassEncoder.setBlendConstant(normConstant);
-    blitPassEncoder.draw(6, 1, 0, 0);
+    blitPassEncoder.executeBundles([ blitBundle ]);
     blitPassEncoder.end();
 
     device.queue.submit([ commandEncoder.finish() ]);
