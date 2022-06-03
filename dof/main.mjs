@@ -104,6 +104,11 @@ const loadShader = async (name) => {
   return new Uint32Array(data);
 };
 
+const loadShaderWgsl = async (name) => {
+  const response = await fetch(`../assets/shaders/webgpu/${name}.wgsl`);
+  return response.text();
+};
+
 // WebGPU
 if (!navigator.gpu) {
   alert('WebGPU is not supported/enabled in your browser');
@@ -111,16 +116,22 @@ if (!navigator.gpu) {
 }
 
 const adapter = await navigator.gpu.requestAdapter();
+if (!adapter) {
+  alert('WebGPU is not supported/enabled in your browser');
+  throw new Error('Could not find adapter');
+}
+
 const device = await adapter.requestDevice();
 
 const canvas = document.getElementById('webgpu-canvas');
 const context = canvas.getContext('webgpu');
 
-const presentationFormat = context.getPreferredFormat(adapter);
+const presentationFormat = navigator.gpu.getPreferredCanvasFormat();
 const depthFormat = 'depth24plus';
 context.configure({
   device,
-  format: presentationFormat
+  format: presentationFormat,
+  alphaMode: 'opaque'
 });
 
 // Instancing constants
@@ -134,7 +145,7 @@ const SPIN_SPEED = Math.PI / 4 / 1000;
 // DOF constants
 const jitter = vec3.create();
 const jitteredViewMatrix = mat4.create();
-const numJitters = 16;
+const numJitters = 32;
 const jitterNorm = 1 / numJitters;
 const normConstant = [jitterNorm, jitterNorm, jitterNorm, jitterNorm];
 // const jitters = Array.from({ length: numJitters }).map(() => randSquare([]));
@@ -150,6 +161,7 @@ focalDistDisplay.textContent = focalDist;
 focalDistControl.addEventListener('input', (evt) => {
   focalDist = evt.target.value;
   focalDistDisplay.textContent = focalDist;
+  updateSceneUniformBuffers();
 });
 let aperture = .5;
 const apertureControl = document.getElementById('aperture');
@@ -159,16 +171,19 @@ apertureDisplay.textContent = aperture;
 apertureControl.addEventListener('input', (evt) => {
   aperture = evt.target.value;
   apertureDisplay.textContent = aperture;
+  updateSceneUniformBuffers();
 });
 
 // Geometry
 const verticesBuffer = device.createBuffer({
+  label: "verticesBuffer",
   size: bunny.vertices.byteLength,
   usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST
 });
 device.queue.writeBuffer(verticesBuffer, 0, bunny.vertices);
 
 const indicesBuffer = device.createBuffer({
+  label: "indicesBuffer",
   size: bunny.indices.byteLength,
   usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST
 });
@@ -188,6 +203,7 @@ for (let i = 0; i < NUM_INSTANCES_Z; i++) {
 }
 
 const instancesBuffer = device.createBuffer({
+  label: "instancesBuffer",
   size: instancesData.byteLength,
   usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST
 });
@@ -212,13 +228,44 @@ const halfHeight = near * Math.tan(fovy / 2);
 const halfWidth = halfHeight * canvas.width / canvas.height;
 const projectionMatrix = skewedFrustumZO(mat4.create(), -halfWidth, halfWidth, -halfHeight, halfHeight, near, far, 0, 0, 1);
 
-const sceneUniformsBuffer = device.createBuffer({
-  size: viewMatrix.byteLength + projectionMatrix.byteLength,
+const rotationMatrix = mat4.fromRotation(mat4.create(), 0, upVector);
+
+const sceneUniformBuffers = []
+for (let i = 0; i < jitters.length; i++) {
+  // Build jitter uniforms
+  const jitterBuffer = device.createBuffer({
+    label: `jitterBuffer${i}`,
+    size: viewMatrix.byteLength + projectionMatrix.byteLength,
+    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+  });
+  sceneUniformBuffers.push(jitterBuffer);
+}
+function updateSceneUniformBuffers() {
+  for (let i = 0; i < jitters.length; i++) {
+    const dx = jitters[i][0] * aperture;
+    const dy = jitters[i][1] * aperture;
+    vec3.zero(jitter);
+    vec3.scaleAndAdd(jitter, jitter, cameraRight, -dx);
+    vec3.scaleAndAdd(jitter, jitter, cameraUp, -dy);
+    mat4.translate(jitteredViewMatrix, viewMatrix, jitter);
+    skewedFrustumZO(projectionMatrix, -halfWidth, halfWidth, -halfHeight, halfHeight, near, far, dx, dy, focalDist);
+
+    const jitterBuffer = sceneUniformBuffers[i];
+    device.queue.writeBuffer(jitterBuffer, 0, jitteredViewMatrix);
+    device.queue.writeBuffer(jitterBuffer, jitteredViewMatrix.byteLength, projectionMatrix);
+  }
+}
+updateSceneUniformBuffers();
+
+const rotationUniformBuffer = device.createBuffer({
+  label: "rotationUniformBuffer",
+  size: rotationMatrix.byteLength,
   usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
 });
 
-const sampler = device.createSampler();
+const sampler = device.createSampler({ label: "sampler" });
 const texture = device.createTexture({
+  label: "texture",
   size: [canvas.width, canvas.height, 1],
   format: presentationFormat,
   usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING
@@ -226,8 +273,10 @@ const texture = device.createTexture({
 
 // Pipeline
 const scenePipeline = device.createRenderPipeline({
+  label: "scenePipeline",
+  layout: 'auto',
   vertex: {
-    module: device.createShaderModule({ code: await loadShader('instanced-mesh.vert') }),
+    module: device.createShaderModule({ code: await loadShaderWgsl('instanced-mesh.vert') }),
     entryPoint: 'main',
     buffers: [{
       arrayStride: 6 * 4,
@@ -263,7 +312,7 @@ const scenePipeline = device.createRenderPipeline({
     }]
   },
   fragment: {
-    module: device.createShaderModule({ code: await loadShader('half-lambert.frag') }),
+    module: device.createShaderModule({ code: await loadShaderWgsl('half-lambert.frag') }),
     entryPoint: 'main',
     targets: [{
       format: presentationFormat
@@ -282,6 +331,8 @@ const scenePipeline = device.createRenderPipeline({
 });
 
 const blitPipeline = device.createRenderPipeline({
+  label: "blitPipeline",
+  layout: 'auto',
   vertex: {
     module: device.createShaderModule({ code: await loadShader('fullscreen-quad.vert') }),
     entryPoint: 'main',
@@ -312,17 +363,30 @@ const blitPipeline = device.createRenderPipeline({
 });
 
 // Uniform bind groups
-const sceneBindGroup = device.createBindGroup({
+const rotationBindGroup = device.createBindGroup({
+  label: "rotationBindGroup",
   layout: scenePipeline.getBindGroupLayout(0),
   entries: [{
     binding: 0,
     resource: {
-      buffer: sceneUniformsBuffer
+      buffer: rotationUniformBuffer
     }
   }]
 });
 
+const sceneBindGroups = sceneUniformBuffers.map((jitterBuffer, idx) => device.createBindGroup({
+  label: `sceneBindGroup${idx}`,
+  layout: scenePipeline.getBindGroupLayout(1),
+  entries: [{
+    binding: 0,
+    resource: {
+      buffer: jitterBuffer
+    }
+  }]
+}));
+
 const blitBindGroup = device.createBindGroup({
+  label: "blitBindGroup",
   layout: blitPipeline.getBindGroupLayout(0),
   entries: [{
     binding: 0,
@@ -335,36 +399,44 @@ const blitBindGroup = device.createBindGroup({
 
 // Pass
 const depthTexture = device.createTexture({
+  label: "depthTexture",
   size: [canvas.width, canvas.height, 1],
   format: depthFormat,
   usage: GPUTextureUsage.RENDER_ATTACHMENT
 });
 
 const scenePassDescriptor = {
+  label: "scenePass",
   colorAttachments: [{
     view: texture.createView(),
-    loadValue: [0, 0, 0, 0]
+    clearValue: [0, 0, 0, 0],
+    loadOp: 'clear',
+    storeOp: 'store'
   }],
   depthStencilAttachment: {
     view: depthTexture.createView(),
-    depthLoadValue: 1,
+    depthClearValue: 1,
+    depthLoadOp: 'clear',
     depthStoreOp: 'store',
-    stencilLoadValue: 0,
-    stencilStoreOp: 'store'
   }
 };
 
 const blitPassDescriptor = {
+  label: "blitPass",
   colorAttachments: [{
     view: undefined,
-    loadValue: 'load'
+    loadOp: 'load',
+    storeOp: 'store'
   }]
 };
 
 const clearPassDescriptor = {
+  label: "clearPass",
   colorAttachments: [{
     view: undefined,
-    loadValue: [0, 0, 0, 0]
+    clearValue: [0, 0, 0, 0],
+    loadOp: 'clear',
+    storeOp: 'store'
   }]
 };
 
@@ -377,16 +449,8 @@ function frame() {
   previousFrameTime = currentFrameTime;
 
   // Update rotation
-  for (let i = 0; i < NUM_INSTANCES_Z; i++) {
-    const z = ((1 - NUM_INSTANCES_Z) / 2 + i) * INSTANCE_SPACING_Z;
-    for (let j = 0; j < NUM_INSTANCES_X; j++) {
-      const x = ((1 - NUM_INSTANCES_X) / 2 + j) * INSTANCE_SPACING_X;
-      const instanceOffset = (i * NUM_INSTANCES_X + j) * 16;
-      const modelMatrix = instancesData.subarray(instanceOffset, instanceOffset + 16);
-      mat4.rotateY(modelMatrix, modelMatrix, SPIN_SPEED * dt);
-    }
-  }
-  device.queue.writeBuffer(instancesBuffer, 0, instancesData);
+  mat4.rotateY(rotationMatrix, rotationMatrix, SPIN_SPEED * dt);
+  device.queue.writeBuffer(rotationUniformBuffer, 0, rotationMatrix);
 
   // Swap chain target
   clearPassDescriptor.colorAttachments[0].view = context.getCurrentTexture().createView();
@@ -395,21 +459,10 @@ function frame() {
   // Clear pass
   const clearCommandEncoder = device.createCommandEncoder();
   const clearPassEncoder = clearCommandEncoder.beginRenderPass(clearPassDescriptor);
-  clearPassEncoder.endPass();
+  clearPassEncoder.end();
   device.queue.submit([ clearCommandEncoder.finish() ]);
 
   for (let i = 0; i < jitters.length; i++) {
-    // Update jitter
-    const dx = jitters[i][0] * aperture;
-    const dy = jitters[i][1] * aperture;
-    vec3.zero(jitter);
-    vec3.scaleAndAdd(jitter, jitter, cameraRight, -dx);
-    vec3.scaleAndAdd(jitter, jitter, cameraUp, -dy);
-    mat4.translate(jitteredViewMatrix, viewMatrix, jitter);
-    skewedFrustumZO(projectionMatrix, -halfWidth, halfWidth, -halfHeight, halfHeight, near, far, dx, dy, focalDist)
-    device.queue.writeBuffer(sceneUniformsBuffer, 0, jitteredViewMatrix);
-    device.queue.writeBuffer(sceneUniformsBuffer, viewMatrix.byteLength, projectionMatrix);
-
     // Send commands
     const commandEncoder = device.createCommandEncoder();
 
@@ -419,9 +472,10 @@ function frame() {
     scenePassEncoder.setVertexBuffer(0, verticesBuffer);
     scenePassEncoder.setVertexBuffer(1, instancesBuffer);
     scenePassEncoder.setIndexBuffer(indicesBuffer, 'uint16');
-    scenePassEncoder.setBindGroup(0, sceneBindGroup);
+    scenePassEncoder.setBindGroup(0, rotationBindGroup);
+    scenePassEncoder.setBindGroup(1, sceneBindGroups[i]);
     scenePassEncoder.drawIndexed(bunny.indices.length, NUM_INSTANCES, 0, 0, 0);
-    scenePassEncoder.endPass();
+    scenePassEncoder.end();
 
     // Blit pass
     const blitPassEncoder = commandEncoder.beginRenderPass(blitPassDescriptor);
@@ -429,7 +483,7 @@ function frame() {
     blitPassEncoder.setBindGroup(0, blitBindGroup);
     blitPassEncoder.setBlendConstant(normConstant);
     blitPassEncoder.draw(6, 1, 0, 0);
-    blitPassEncoder.endPass();
+    blitPassEncoder.end();
 
     device.queue.submit([ commandEncoder.finish() ]);
   }
