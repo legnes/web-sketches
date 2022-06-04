@@ -1,16 +1,6 @@
 import bunny from '../assets/meshes/bunny.mjs';
 import { mat4, vec3, vec2 } from '../assets/lib/gl-matrix.mjs';
 
-// TODO:
-//  - [ ] fix color quantizings
-//  - [ ] make sure early z/depth/frag test is running (explicit flag? no alpha channel?)
-//  - [ ] refactor everything
-//  - [ ] accum temporally (w no rotation)????
-//  - [ ] foc dist & fake aperture --> real focal length (mm) and aperture (f stop)
-//  - [ ] can get rid of blit pass?
-//  - [ ] compress bunny
-//  - [ ]
-
 // Helpers
 
 // Based on
@@ -145,7 +135,7 @@ const SPIN_SPEED = Math.PI / 4 / 1000;
 // DOF constants
 const jitter = vec3.create();
 const jitteredViewMatrix = mat4.create();
-const numJitters = 24;
+const numJitters = 16;
 const jitterNorm = 1 / numJitters;
 const normConstant = [jitterNorm, jitterNorm, jitterNorm, jitterNorm];
 // const jitters = Array.from({ length: numJitters }).map(() => randSquare([]));
@@ -491,10 +481,6 @@ function frame() {
     // Send commands
     const commandEncoder = device.createCommandEncoder();
 
-    // SE TODO: to resolve color quantization, render and blit accum to float, then blit once more with tonemap
-    // SE TODO: figure out how to accum --> float without blit (depth check still writes or smth)?
-    // SE TODO: improve bundling by un-interleaving!!! (see above)
-
     // Scene pass
     const scenePassEncoder = commandEncoder.beginRenderPass(scenePassDescriptor);
     scenePassEncoder.executeBundles([ sceneBundles[i] ])
@@ -512,3 +498,19 @@ function frame() {
 }
 
 requestAnimationFrame(frame);
+
+
+// TODO: to resolve color quantization, render and blit accum to float, then blit once more with tonemap
+// TODO: figure out how to accum --> float without blit (depth check still writes or smth)?
+// TODO: improve bundling by un-interleaving!!! (see above)
+// TODO: why is it so slow when you use just a single command encoder???
+
+// TODO:
+//  - [ ] fix color quantizings
+//  - [ ] make sure early z/depth/frag test is running (explicit flag? no alpha channel?)
+//  - [ ] refactor everything
+//  - [ ] accum temporally (w no rotation)????
+//  - [ ] foc dist & fake aperture --> real focal length (mm) and aperture (f stop)
+//  - [ ] can get rid of blit pass?
+//  - [ ] compress bunny
+//  - [ ]
