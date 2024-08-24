@@ -118,7 +118,7 @@ gl.bindFramebuffer(gl.FRAMEBUFFER, null);
 // Handle inputs
 const inputSimulationUniforms = {
   uDiffusionRadius: 0.6,
-  uForceX: 0,
+  uForceX: 1,
   uForceY: 0,
 };
 for (const uniformName in inputSimulationUniforms) {

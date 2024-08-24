@@ -2,9 +2,8 @@
 const DEG_TO_RAD = Math.PI / 180;
 
 const loadShader = async (name) => {
-  const response = await fetch(`../assets/shaders/webgpu/built/${name}.spv`);
-  const data = await response.arrayBuffer();
-  return new Uint32Array(data);
+  const response = await fetch(`../assets/shaders/webgpu/${name}.wgsl`);
+  return response.text();
 };
 
 // WebGPU
@@ -19,7 +18,7 @@ const device = await adapter.requestDevice();
 const canvas = document.getElementById('webgpu-canvas');
 const context = canvas.getContext('webgpu');
 
-const presentationFormat = context.getPreferredFormat(adapter);
+const presentationFormat = navigator.gpu.getPreferredCanvasFormat();
 const depthFormat = 'depth24plus';
 context.configure({
   device,
@@ -40,7 +39,7 @@ const UPDATE_AGENTS_WORGROUP_SIZE = 32;
 
 // Define simulation data
 const agentData = new Float32Array(NUM_AGENTS * 4);
-const forcesSize = NUM_AGENTS * 4 * 4;
+const forcesSize = NUM_AGENTS * 2 * 4;
 
 const ppsParams =
 // {speed: 0, neighborhoodRadius: 0, globalRotation: 0, localRotation: 0};
@@ -54,14 +53,22 @@ const accumulateForcesPipeline = device.createComputePipeline({
   compute: {
     module: device.createShaderModule({ code: await loadShader('pps-accumulate-forces.comp') }),
     entryPoint: 'main',
+    constants: {
+      WORKGROUP_SIZE: ACCUMULATE_FORCES_WORGROUP_SIZE,
+    },
   },
+  layout: 'auto',
 });
 
 const updateAgentsPipeline = device.createComputePipeline({
   compute: {
     module: device.createShaderModule({ code: await loadShader('pps-update-agents.comp') }),
     entryPoint: 'main',
+    constants: {
+      WORKGROUP_SIZE: UPDATE_AGENTS_WORGROUP_SIZE,
+    },
   },
+  layout: 'auto',
 });
 
 // Set up compute buffers
@@ -165,12 +172,15 @@ const renderPipeline = device.createRenderPipeline({
   primitive: {
     topology: 'triangle-list',
   },
+  layout: 'auto',
 });
 
 const renderPassDescriptor = {
   colorAttachments: [{
     view: undefined,
-    loadValue: [.94, .9, .9, 1]
+    clearValue: [.94, .9, .9, 1],
+    loadOp: 'clear',
+    storeOp: 'store'
   }]
 };
 
@@ -209,7 +219,7 @@ for (const key in ppsParams) {
 }
 
 // Render
-function frame() {
+async function frame() {
   // Handle all swapping
   renderPassDescriptor.colorAttachments[0].view = context.getCurrentTexture().createView();
 
@@ -221,20 +231,20 @@ function frame() {
   renderPass.setPipeline(renderPipeline);
   renderPass.setVertexBuffer(0, agentsBuffer);
   renderPass.draw(3, NUM_AGENTS, 0, 0, 0);
-  renderPass.endPass();
+  renderPass.end();
 
   // Then compute next draw
   const accumulateForcesPass = commandEncoder.beginComputePass();
   accumulateForcesPass.setPipeline(accumulateForcesPipeline);
   accumulateForcesPass.setBindGroup(0, accumulateForcesBindGroup);
-  accumulateForcesPass.dispatch(NUM_AGENTS / ACCUMULATE_FORCES_WORGROUP_SIZE);
-  accumulateForcesPass.endPass();
+  accumulateForcesPass.dispatchWorkgroups(NUM_AGENTS / ACCUMULATE_FORCES_WORGROUP_SIZE);
+  accumulateForcesPass.end();
 
   const updateAgentsPass = commandEncoder.beginComputePass();
   updateAgentsPass.setPipeline(updateAgentsPipeline);
   updateAgentsPass.setBindGroup(0, updateAgentsBindGroup);
-  updateAgentsPass.dispatch(NUM_AGENTS / UPDATE_AGENTS_WORGROUP_SIZE);
-  updateAgentsPass.endPass();
+  updateAgentsPass.dispatchWorkgroups(NUM_AGENTS / UPDATE_AGENTS_WORGROUP_SIZE);
+  updateAgentsPass.end();
 
   device.queue.submit([ commandEncoder.finish() ]);
 

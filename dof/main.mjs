@@ -88,12 +88,6 @@ function randCircle(out) {
   return out;
 }
 
-const loadShader = async (name) => {
-  const response = await fetch(`../assets/shaders/webgpu/built/${name}.spv`);
-  const data = await response.arrayBuffer();
-  return new Uint32Array(data);
-};
-
 const loadShaderWgsl = async (name) => {
   const response = await fetch(`../assets/shaders/webgpu/${name}.wgsl`);
   return response.text();
@@ -324,12 +318,12 @@ const blitPipeline = device.createRenderPipeline({
   label: "blitPipeline",
   layout: 'auto',
   vertex: {
-    module: device.createShaderModule({ code: await loadShader('fullscreen-quad.vert') }),
+    module: device.createShaderModule({ code: await loadShaderWgsl('fullscreen-quad.vert') }),
     entryPoint: 'main',
     buffers: []
   },
   fragment: {
-    module: device.createShaderModule({ code: await loadShader('copy-texture.frag') }),
+    module: device.createShaderModule({ code: await loadShaderWgsl('copy-texture.frag') }),
     entryPoint: 'main',
     targets: [{
       format: presentationFormat,

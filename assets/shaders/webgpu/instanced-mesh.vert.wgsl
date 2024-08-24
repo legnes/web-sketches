@@ -14,7 +14,7 @@ struct VertexOutput {
   @location(0) normal : vec3<f32>,
 };
 
-@stage(vertex)
+@vertex
 fn main(
   @location(0) aPosition : vec4<f32>,
   @location(1) aNormal : vec3<f32>,
@@ -24,7 +24,7 @@ fn main(
   @location(5) aModelMatrix4 : vec4<f32>
 ) -> VertexOutput {
   let modelMatrix = mat4x4<f32>(aModelMatrix1, aModelMatrix2, aModelMatrix3, aModelMatrix4);
-  var output : VertexOutput;
+  var output: VertexOutput;
   output.normal = aNormal;
   output.Position = uScene.projectionMatrix * uScene.viewMatrix * modelMatrix * uRotation.matrix * aPosition;
   return output;
