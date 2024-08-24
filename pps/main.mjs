@@ -219,7 +219,7 @@ for (const key in ppsParams) {
 }
 
 // Render
-async function frame() {
+function frame() {
   // Handle all swapping
   renderPassDescriptor.colorAttachments[0].view = context.getCurrentTexture().createView();
 
